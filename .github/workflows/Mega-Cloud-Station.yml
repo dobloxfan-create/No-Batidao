@@ -1,0 +1,81 @@
+name: Mega-Cloud-Station
+
+on: workflow_dispatch
+
+jobs:
+  cloud-station:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 Hours Max
+
+    steps:
+      - name: 1. Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: 2. Start Tailscale (VPN + SSH)
+        run: |
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} \
+            --hostname="mega-station" \
+            --ssh \
+            --advertise-exit-node
+
+      - name: 3. Start n8n (Automation)
+        run: |
+          # Automation Tool on Port 5678
+          docker run -d --restart unless-stopped --name n8n -p 5678:5678 n8nio/n8n
+
+      - name: 4. Start Code-Server (VS Code in Browser)
+        run: |
+          # VS Code Web on Port 8080 (Password: User@123)
+          docker run -d --name code-server -p 8080:8080 \
+            -v "$HOME/.config/code-server:/home/coder/.config/code-server" \
+            -v "$PWD:/home/coder/project" \
+            -e PASSWORD=User@123 \
+            codercom/code-server:latest
+
+      - name: 5. Start File Browser (Visual File Manager)
+        run: |
+          # File Manager on Port 80 (Password: admin/admin)
+          # We create a dummy DB file first
+          touch filebrowser.db
+          docker run -d --name filebrowser -p 80:80 \
+            -v "$PWD:/srv" \
+            -v "$PWD/filebrowser.db:/database.db" \
+            filebrowser/filebrowser:latest \
+            noauth # Disables password for instant access (Safe inside Tailscale)
+
+      - name: 6. Start Portainer (Docker Manager)
+        run: |
+          # Docker Dashboard on Port 9000
+          docker run -d -p 9000:9000 --name portainer \
+            --restart=always \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            portainer/portainer-ce:latest
+
+      - name: 7. Install Utilities (Speedtest, Java, etc.)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y speedtest-cli htop default-jdk
+
+      - name: 8. DISPLAY DASHBOARD
+        run: |
+          IP=$(tailscale ip -4)
+          echo "=========================================================="
+          echo "       MEGA-STATION IS LIVE - ACCESS DASHBOARD"
+          echo "----------------------------------------------------------"
+          echo "   Your Tailscale IP : $IP"
+          echo ""
+          echo "   [ TOOLS ACCESS ]"
+          echo "   📂 File Manager    : http://$IP  (Port 80)"
+          echo "   💻 VS Code Web     : http://$IP:8080  (Pass: User@123)"
+          echo "   🤖 n8n Automation  : http://$IP:5678"
+          echo "   🐳 Portainer       : http://$IP:9000"
+          echo ""
+          echo "   [ SYSTEM ACCESS ]"
+          echo "   ⚡ Terminal (SSH)  : ssh runner@$IP"
+          echo "   🌍 VPN Exit Node   : Ready (Enable in Tailscale Dashboard)"
+          echo "=========================================================="
+
+      - name: 9. Keep Alive
+        run: |
+          while true; do sleep 60; done
